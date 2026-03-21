@@ -1,5 +1,6 @@
 import requests
 import json
+import time
 import os
 
 # DO NOT HARDCODE YOUR API KEY
@@ -18,13 +19,13 @@ headers = {
 }
 
 def list_sources():
-    """Lists available sources connected to Jules."""
+    """1. List sources: Gets available sources (like your connected GitHub repo) to work with."""
     url = f"{BASE_URL}/sources"
     try:
         response = requests.get(url, headers=headers)
         response.raise_for_status()
-        print("--- Available Sources ---")
         sources = response.json()
+        print("\n[1] --- Available Sources ---")
         print(json.dumps(sources, indent=2))
         return sources
     except requests.exceptions.RequestException as e:
@@ -34,25 +35,25 @@ def list_sources():
         return None
 
 def create_session(source_name, prompt):
-    """Creates a new Jules session."""
+    """2. Create session: Starts a new work session with a prompt and a source."""
     url = f"{BASE_URL}/sessions"
     payload = {
         "prompt": prompt,
         "sourceContext": {
             "source": source_name,
-            # Adjust githubRepoContext as needed for your specific repo/branch
             "githubRepoContext": {
                 "startingBranch": "main"
             }
         },
-        "title": "API Created Session"
+        "title": "Pipeline Test Session",
+        "requirePlanApproval": True # Setting this to true so we can test the approve plan feature
     }
 
     try:
         response = requests.post(url, headers=headers, json=payload)
         response.raise_for_status()
-        print(f"\n--- Created Session for prompt: '{prompt}' ---")
         session = response.json()
+        print(f"\n[2] --- Created Session ---")
         print(json.dumps(session, indent=2))
         return session
     except requests.exceptions.RequestException as e:
@@ -61,16 +62,111 @@ def create_session(source_name, prompt):
             print(f"Response: {e.response.text}")
         return None
 
+def list_sessions():
+    """3. List sessions: Gets a list of your recent sessions."""
+    url = f"{BASE_URL}/sessions?pageSize=5"
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        sessions = response.json()
+        print("\n[3] --- Recent Sessions ---")
+        print(json.dumps(sessions, indent=2))
+        return sessions
+    except requests.exceptions.RequestException as e:
+        print(f"Failed to list sessions: {e}")
+        if e.response is not None:
+            print(f"Response: {e.response.text}")
+        return None
+
+def list_activities(session_name):
+    """4. List activities: Checks the progress, plan, and messages within a session."""
+    # Note: session_name includes 'sessions/' prefix, e.g., 'sessions/123'
+    url = f"{BASE_URL}/{session_name}/activities?pageSize=10"
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        activities = response.json()
+        print(f"\n[4] --- Activities for {session_name} ---")
+        print(json.dumps(activities, indent=2))
+        return activities
+    except requests.exceptions.RequestException as e:
+        print(f"Failed to list activities: {e}")
+        if e.response is not None:
+            print(f"Response: {e.response.text}")
+        return None
+
+def approve_plan(session_name):
+    """5. Approve plan: Approves the agent's proposed plan if the session requires explicit approval."""
+    url = f"{BASE_URL}/{session_name}:approvePlan"
+    try:
+        response = requests.post(url, headers=headers)
+        response.raise_for_status()
+        print(f"\n[5] --- Plan Approved for {session_name} ---")
+        return True
+    except requests.exceptions.RequestException as e:
+        print(f"Failed to approve plan: {e}")
+        if e.response is not None:
+            print(f"Response: {e.response.text}")
+        return False
+
+def send_message(session_name, message):
+    """6. Send message: Sends a prompt/message to the agent within an active session."""
+    url = f"{BASE_URL}/{session_name}:sendMessage"
+    payload = {
+        "prompt": message
+    }
+    try:
+        response = requests.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+        print(f"\n[6] --- Sent message to {session_name} ---")
+        print(f"Message: '{message}'")
+        return True
+    except requests.exceptions.RequestException as e:
+        print(f"Failed to send message: {e}")
+        if e.response is not None:
+            print(f"Response: {e.response.text}")
+        return False
+
 if __name__ == "__main__":
-    # 1. List sources to find the name
+    print("Starting API Pipeline Test...")
+
+    # 1. List Sources
     sources_data = list_sources()
 
-    # 2. If a source exists, create a session using the first one
     if sources_data and 'sources' in sources_data and len(sources_data['sources']) > 0:
         first_source_name = sources_data['sources'][0]['name']
 
-        # Example prompt
-        prompt = "Explain how this repository is structured."
-        create_session(first_source_name, prompt)
+        # 2. Create Session
+        initial_prompt = "Can you create a simple README file for this repository?"
+        session_data = create_session(first_source_name, initial_prompt)
+
+        if session_data and 'name' in session_data:
+            session_name = session_data['name']
+
+            # 3. List Sessions (just to test the endpoint)
+            list_sessions()
+
+            # Wait a moment for the agent to generate a plan
+            print("\nWaiting for 5 seconds to let the agent generate a plan...")
+            time.sleep(5)
+
+            # 4. List Activities (to see the generated plan)
+            list_activities(session_name)
+
+            # 5. Approve Plan
+            # Note: This will only work if a plan was actually generated and requires approval.
+            approve_plan(session_name)
+
+            # Wait a moment for agent to start working
+            print("\nWaiting for 5 seconds before sending a message...")
+            time.sleep(5)
+
+            # 6. Send Message
+            send_message(session_name, "Actually, please make sure the README mentions it's a test.")
+
+            # Final check of activities to see our message
+            print("\nChecking final activities...")
+            list_activities(session_name)
+
     else:
-        print("\nNo sources found or failed to fetch sources. Make sure you have connected a source (like GitHub) to Jules in the web app.")
+        print("\nPipeline stopped: No sources found to create a session.")
