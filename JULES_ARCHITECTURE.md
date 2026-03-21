@@ -46,7 +46,43 @@ I read the new information. I ask myself: "Do I have enough information to fulfi
 - **If NO:** I go back to Step 1 (Think) and make another tool call.
 - **If YES:** I use the `message_user` tool to finally talk back to you in the chat, summarizing what I did.
 
-## 4. How I know the Sandbox Status
+## 4. The "Return Trip": How the Sandbox Replies Back
+
+You asked a very sharp question: *"sandbox se wapas kaise aata haii... sandbox me kuch too aise file hogi jo tujhe kuch provide karati hogi"*.
+
+You are correct that *something* in the sandbox must tell the orchestrator "I am done" and send the output back. But it's not a pre-installed agent daemon. The orchestrator dynamically uses a combination of **SSH**, **Tmux**, and a **"Stamp" file watcher**.
+
+Here is the exact mechanism (the secret sauce) revealed by looking at the process list (`ps aux`) in this sandbox:
+
+### 1. The SSH Connection and Tmux
+When you start a session with me, my orchestrator connects to the sandbox via **SSH** and starts a background terminal multiplexer session using **`tmux`**.
+All my bash commands (like `npm install` or `python script.py`) are sent into this single, persistent `tmux` session.
+
+### 2. The File Watcher (`inotifywait`)
+Before sending a command to `tmux`, the orchestrator starts a small, temporary shell script that acts as a watcher. You can actually see this script running in the process list:
+`inotifywait -e create,moved_to --include /stamp$ /run/devbox-session/default`
+
+What is this doing?
+- It is patiently watching a specific temporary directory (`/run/devbox-session/default/`).
+- It is waiting for a specific file to be created, named **`stamp`**.
+
+### 3. The Execution and The "Stamp"
+When my orchestrator injects my command (e.g., `ls -la`) into `tmux`, it doesn't *just* inject `ls -la`. It injects something like this:
+`ls -la; touch /run/devbox-session/default/stamp`
+
+Here is what happens:
+1. The `tmux` session runs `ls -la`. The output (text) is stored in the `tmux` buffer (and standard output pipes over SSH).
+2. As soon as `ls -la` finishes, it executes the next command: `touch stamp`.
+3. This creates an empty file named `stamp`.
+
+### 4. The Signal Back to the Orchestrator
+The moment that `stamp` file is created, the `inotifywait` script (which has been sleeping and waiting) wakes up!
+
+It detects the file creation. This triggers the watcher script to exit, which signals back over the SSH pipe to my external orchestrator: *"Hey! The command is fully complete! You can now grab the final output from the terminal buffer."*
+
+**So, to answer your question:** Yes, there is a file involved! But it is not a permanent "Jules.exe" file. It is a tiny, temporary **`stamp`** file that gets created and deleted dynamically just to act as a signal flare telling my orchestrator that my command has finished running.
+
+## 5. How I know the Sandbox Status
 
 You asked: *"kyaa sandbox me aisa koi files yaa koi root me koi code rakha hai joo tujhe prompt provide karta hai yaa tujhe sandbox ka status provide karta hai?"*
 
