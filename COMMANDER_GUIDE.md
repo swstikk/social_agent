@@ -1,63 +1,95 @@
-# Jules Commander Workflow Guide
+# The Jules Commander Protocol: A Guide for Human Orchestrators
 
-This guide explains how you (the human user acting as a "Commander") can orchestrate and manage another AI ("The Worker") operating in a separate sandbox using the Jules REST API.
+Welcome, Commander.
 
-This setup allows you to remotely control a Jules session, monitor its progress, approve its plans, and provide it with new tasks or feedback entirely through a Command Line Interface (CLI).
+This guide outlines the **Master-Worker (Commander-Worker) Architecture**. In this setup, you are the Orchestrator (The Commander). Your job is to manage, direct, and supervise a separate, isolated AI session ("The Worker") operating in its own sandbox environment via the Jules REST API.
 
-## Prerequisites
+You will not interact with the Worker through a standard chat interface. Instead, you will use a powerful Command Line Interface (CLI) tool—`jules_commander.py`—to issue direct commands, check statuses, and approve execution plans.
 
-Before you can command the Worker, you must set your Jules API key as an environment variable. The `jules_commander.py` tool will read this to authenticate your commands.
+---
+
+## The Architecture & Your Role
+
+1. **The Commander (You):** You hold the vision. You decide what needs to be built, break it down into high-level tasks, review the AI's plans, and course-correct when necessary.
+2. **The Worker (The Jules AI Session):** A fresh instance of an AI agent connected to a source repository. It has no context other than what you provide. It is the execution engine.
+3. **The Bridge (The CLI Tool):** `jules_commander.py` uses the Jules REST API to translate your terminal commands into direct API requests to the Worker's session.
+
+### Prerequisites & Authentication
+The CLI tool requires authentication to communicate with the API. You **must** set your API key as an environment variable before issuing commands.
 
 ```bash
 export JULES_API_KEY="your_api_key_here"
 ```
 
-You will also need the **Session ID** of the Worker you want to control.
+You must also know the **Session ID** of the Worker you are commanding (e.g., `10290120723086341887`).
 
-## The Commander Tool (`jules_commander.py`)
+---
 
-This Python script is your control panel. It interacts with the Jules API (`v1alpha` endpoints) to execute your commands.
+## The Orchestration Workflow (The Loop)
 
-### 1. Check Worker Status
+Managing a Worker is a continuous loop of checking status, analyzing the situation, and taking action.
 
-**Command:** `python3 jules_commander.py status <SESSION_ID>`
+### Step 1: Check Status (Function 4)
+Always start by checking what the Worker is currently doing or if it is waiting for your input.
 
-**Purpose:** Use this command to see what the Worker is currently doing. It fetches the latest activities from the API.
+**Command:**
+```bash
+python3 jules_commander.py status <SESSION_ID>
+```
+**What to look for:**
+*   Is the Worker idle?
+*   Did it encounter an error?
+*   Has it generated a "Plan" that is currently "PENDING APPROVAL"?
 
-**When to use it:**
-- When you first connect to a new Worker session.
-- Periodically, to check if the Worker has finished a task or is stuck.
-- **Crucially:** To see if the Worker has generated a "Plan" that is "PENDING APPROVAL".
+### Step 2: Analyze & Decide
+Based on the status report, decide your next move:
+*   **Scenario A:** The Worker just generated a plan and is paused, waiting for your permission to execute. -> **Go to Step 3a (Approve).**
+*   **Scenario B:** The Worker is idle, has finished its previous task, or is asking you a clarifying question. -> **Go to Step 3b (Message).**
 
-### 2. Approve Worker Plan
+### Step 3a: Approve Plan (Function 5)
+If the status report shows a pending plan, and you agree with the steps the Worker proposed, unblock it so it can begin coding.
 
-**Command:** `python3 jules_commander.py approve <SESSION_ID>`
+**Command:**
+```bash
+python3 jules_commander.py approve <SESSION_ID>
+```
 
-**Purpose:** If a Worker session is configured to require explicit plan approval, it will pause execution after generating a plan. This command tells the API that you approve the plan, unblocking the Worker to start executing.
+### Step 3b: Send Message / Command (Function 6)
+If you need to assign a new task, provide feedback on completed work, or answer a question from the Worker, send a direct message.
 
-**When to use it:**
-- Only after you have run the `status` command and confirmed there is a pending plan waiting for approval.
+**Command:**
+```bash
+python3 jules_commander.py message <SESSION_ID> "Your instructions here"
+```
 
-### 3. Send Command/Message to Worker
+---
 
-**Command:** `python3 jules_commander.py message <SESSION_ID> "Your instructions here"`
+## Commander Prompting Guide & Examples
 
-**Purpose:** This sends a new text prompt to the Worker, just like typing a message in a chat interface.
+As a Commander communicating via an API, your prompts should be direct, structured, and focused on outcomes. You are not "chatting"; you are issuing specifications.
 
-**When to use it:**
-- To give the Worker its initial task.
-- To provide feedback or corrections if the Worker makes a mistake.
-- To answer questions the Worker might have asked (which you saw using the `status` command).
-- To assign a new task after the previous one is completed.
+Here are practical examples of how to phrase your prompts for maximum effectiveness.
 
-## Orchestration Workflow Example
+### Example 1: Initializing a New Task
+When starting a fresh session, provide clear context and the ultimate goal.
 
-Here is a typical workflow for managing a Worker:
+> **Command:**
+> `python3 jules_commander.py message <SESSION_ID> "Task: Set up a basic Express.js server. Requirements: It should run on port 3000, include a single GET endpoint at '/' that returns { 'status': 'ok' }, and include a start script in package.json. Please generate a plan for this."`
 
-1. **Start:** You have a fresh Worker Session ID.
-2. **Assign Task:** `python3 jules_commander.py message 123456789 "Create a simple README file."`
-3. **Monitor:** Wait a few moments, then check what the Worker is doing: `python3 jules_commander.py status 123456789`
-4. **Approve:** If the status shows a plan is pending approval, unblock it: `python3 jules_commander.py approve 123456789`
-5. **Follow up:** After some time, check the status again. If the task is done, you can send another message: `python3 jules_commander.py message 123456789 "Great, now add a section about contributing."`
+### Example 2: Providing Feedback on a Plan
+If you read the Worker's plan via the `status` command and realize it missed something, DO NOT approve it. Instead, send a message to correct the plan.
 
-By looping through these steps, you can effectively act as the "Commander" for any Jules AI session.
+> **Command:**
+> `python3 jules_commander.py message <SESSION_ID> "Reviewing your plan. You missed the requirement to add CORS middleware. Please update your plan to include installing the 'cors' package and applying it to the Express app before I approve."`
+
+### Example 3: Course Correction During Execution
+If you check the `status` and see the Worker is stuck on a bug or heading in the wrong direction, intervene immediately.
+
+> **Command:**
+> `python3 jules_commander.py message <SESSION_ID> "Stop current execution. The error log shows a missing database connection string. You need to use process.env.DATABASE_URL instead of hardcoding the localhost URL. Fix this and proceed."`
+
+### Example 4: Task Completion & Handoff
+When the `status` indicates the Worker has finished its current task, assign the next logical step in your architecture.
+
+> **Command:**
+> `python3 jules_commander.py message <SESSION_ID> "Excellent work on the server setup. Next Phase: Create a Dockerfile to containerize this Node.js application. Ensure you use a lightweight alpine image. Generate a plan for this phase."`
