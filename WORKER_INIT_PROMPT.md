@@ -1,8 +1,5 @@
 # Worker Initialization Prompt
 
-*Instructions for the Human User / Commander:*
-*Copy the text below and paste it as the FIRST message to initialize a new "Worker" Jules session in this repository.*
-
 ---
 
 **Initialize Worker Protocol.**
