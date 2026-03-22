@@ -1,0 +1,8 @@
+*.png
+*.txt
+state.json
+__pycache__/
+.pytest_cache/
+cookies.json
+pw_state.json
+format_cookies.py
