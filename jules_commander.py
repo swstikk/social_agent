@@ -72,23 +72,6 @@ def get_status(session_id):
             print(f"API Response: {e.response.text}", file=sys.stderr)
         sys.exit(1)
 
-def approve_worker_plan(session_id):
-    """Function 5: Approves a pending plan so the Worker can continue."""
-    session_name = _format_session(session_id)
-    url = f"{BASE_URL}/{session_name}:approvePlan"
-
-    try:
-        response = requests.post(url, headers=headers)
-        response.raise_for_status()
-        print(f"SUCCESS: Plan approved for worker {session_name}. They will now proceed.")
-    except requests.exceptions.RequestException as e:
-        print(f"Error approving plan: {e}", file=sys.stderr)
-        if e.response is not None:
-            print(f"API Response: {e.response.text}", file=sys.stderr)
-            if "FAILED_PRECONDITION" in e.response.text or "no plan to approve" in e.response.text.lower():
-                print("\nNote: It seems there is no plan currently waiting for approval.")
-        sys.exit(1)
-
 def send_worker_message(session_id, message):
     """Function 6: Sends a command/message to the Worker."""
     session_name = _format_session(session_id)
@@ -105,6 +88,29 @@ def send_worker_message(session_id, message):
         if e.response is not None:
             print(f"API Response: {e.response.text}", file=sys.stderr)
         sys.exit(1)
+
+def approve_worker_plan(session_id):
+    """Function 5: Approves a pending plan and immediately sends a confirmation message."""
+    session_name = _format_session(session_id)
+    url = f"{BASE_URL}/{session_name}:approvePlan"
+
+    # Action 1: Formally approve the plan via the API
+    try:
+        response = requests.post(url, headers=headers)
+        response.raise_for_status()
+        print(f"SUCCESS (Action 1): Plan approved for worker {session_name}.")
+    except requests.exceptions.RequestException as e:
+        print(f"Error approving plan: {e}", file=sys.stderr)
+        if e.response is not None:
+            print(f"API Response: {e.response.text}", file=sys.stderr)
+            if "FAILED_PRECONDITION" in e.response.text or "no plan to approve" in e.response.text.lower():
+                print("\nNote: It seems there is no plan currently waiting for approval.")
+        sys.exit(1)
+
+    # Action 2: Send a message to the worker confirming approval
+    print("Executing Action 2: Sending confirmation message...")
+    confirmation_message = "I have approved the plan. Please proceed with execution."
+    send_worker_message(session_id, confirmation_message)
 
 # --- CLI Setup ---
 
