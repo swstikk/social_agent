@@ -466,6 +466,112 @@ async def view_story(browser: "SnapshotBrowser", username: str) -> bool:
 
 # ═══════════════════════ DM ═══════════════════════
 
+async def unsend_message(browser: "SnapshotBrowser", username: str, message_text: str) -> bool:
+    """
+    Finds and unsends a specific message sent to a user in their DM chat.
+    Solves Instagram's hidden hover menus by calculating the exact bounding
+    box of the message and using Playwright's native mouse movements to reveal
+    the 'See more options' button.
+    """
+    print(f"--- Action: Unsend Message to {username} ---")
+    await browser.nav("https://www.instagram.com/direct/inbox/")
+    await browser.dismiss_dialogs()
+    await browser.human_delay(2, 4)
+
+    try:
+        # Search for the user in the inbox
+        filled = await browser.wait_and_fill("Search", username)
+        if not filled:
+            print("❌ Search input not found in inbox.")
+            return False
+
+        await browser.human_delay(3, 5)
+
+        # Click the user to open the chat
+        snap = await browser.snapshot()
+        user_ref = browser.find_by_text(username)
+        if user_ref > 0:
+            await browser.force_click(user_ref)
+        else:
+            # Fallbacks: try checkbox or exact span text
+            checkboxes = await browser.page.locator('input[type="checkbox"]').all()
+            if checkboxes:
+                await checkboxes[0].click(force=True)
+            else:
+                clicked = await browser.js_click_text("span", username)
+                if not clicked:
+                    print(f"❌ User '{username}' not found in inbox search.")
+                    return False
+
+        await browser.human_delay(5, 8)
+
+        # Now find the specific message
+        msg_locators = browser.page.locator(f'div[dir="auto"]:has-text("{message_text}")')
+        count = await msg_locators.count()
+        if count == 0:
+            print(f"❌ Message containing '{message_text}' not found in chat.")
+            return False
+
+        target = msg_locators.nth(count - 1) # target the most recent one
+
+        # Scroll it into view (wrap in try-except as Instagram React DOM sometimes throws pointer interception errors here)
+        try:
+            await target.scroll_into_view_if_needed(timeout=5000)
+        except:
+            pass
+
+        await browser.human_delay(1, 2)
+
+        # Get bounding box using JS to bypass Playwright's strict visibility checks on nested spans
+        box = await target.evaluate('''el => {
+            let rect = el.getBoundingClientRect();
+            return {x: rect.x, y: rect.y, w: rect.width, h: rect.height};
+        }''')
+
+        if not box:
+            print("❌ Could not determine message coordinates.")
+            return False
+
+        # Move mouse exactly to the center of the message to trigger the React hover state
+        await browser.page.mouse.move(box['x'] + box['w']/2, box['y'] + box['h']/2, steps=10)
+        await browser.human_delay(1, 2)
+
+        # Instagram dynamically renders an SVG with aria-label="See more options for message from..."
+        more_btn = browser.page.locator('svg[aria-label^="See more options for message"]').locator("xpath=ancestor::div[@role='button']").last
+
+        if await more_btn.is_visible(timeout=3000):
+            print("✅ Found 'See more options' button.")
+            await more_btn.click(force=True)
+            await browser.human_delay(1, 2)
+
+            # Click Unsend in the dropdown menu
+            unsend_clicked = await browser.smart_click_text("Unsend", exact=True)
+            if not unsend_clicked:
+                print("❌ 'Unsend' option not found in the menu.")
+                return False
+
+            await browser.human_delay(1, 2)
+
+            # Confirm Unsend in the modal dialog. Usually it's a dialog, so try click_in_dialog first.
+            confirm = await browser.click_in_dialog("Unsend")
+            if not confirm:
+                 confirm = await browser.smart_click_text("Unsend", exact=True)
+
+            if confirm:
+                print(f"✅ Successfully unsent message: '{message_text}'")
+                return True
+            else:
+                print("❌ Failed to confirm unsend in dialog.")
+                return False
+        else:
+            print("❌ 'See more options' button did not appear after hover.")
+            return False
+
+    except Exception as e:
+        print(f"❌ Error in unsend_message: {e}")
+        return False
+
+
 async def send_dm(browser: "SnapshotBrowser", username: str, message: str) -> bool:
     """Send a DM to a user via the compose flow."""
     print(f"--- Action: Send DM to {username} ---")
