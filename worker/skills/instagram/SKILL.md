@@ -126,52 +126,36 @@ await browser.click(next_ref)
 
 ---
 
-## Follow a User
+## Smart High-Level Actions (NEW API)
+
+Instead of manually navigating and using snapshots for complex interactions (like Share, Block, Follow), you MUST use the provided high-level actions in `worker/skills/instagram/actions.py`. These functions utilize JS evaluation and exact locators to bypass Instagram's complex overlays and intercepting dialogs. They are also idempotent (e.g., skip liking if already liked).
+
 ```python
-await browser.nav(f"https://www.instagram.com/{username}/")
-await browser.human_delay(3, 6)
-snap = await browser.snapshot()
-# Look for "Follow" button
-# If "Follow" found → click it
-# If "Following" found → already following, skip
-# If "Requested" found → already requested, skip
-await browser.click(follow_ref)
-await browser.screenshot("logs/followed.png")
+from skills.instagram.actions import follow_user, unfollow_user, watch_story, like_post, comment_post, share_post, block_user, unblock_user, open_first_post
+
+# Follow / Unfollow (Idempotent - safe to call repeatedly)
+await follow_user(browser, "cristiano")
+await unfollow_user(browser, "cristiano")
+
+# Story Viewing (Captures screenshot proof automatically)
+await watch_story(browser, "cristiano")
+
+# Posts (Like, Comment, Share)
+if await open_first_post(browser):
+    await like_post(browser) # Skips if already liked
+    await comment_post(browser, "Great post! 🔥")
+    await share_post(browser, "leomessi") # Searches leomessi and sends via DM modal
+
+# Block / Unblock (Handles confirm dialogs dynamically)
+await block_user(browser)
+await unblock_user(browser)
 ```
+
+**Important Note:** For the actions listed above, ALWAYS use the smart high-level functions instead of writing manual `browser.click()` or `snapshot()` logic. Instagram's UI often blocks standard Playwright clicks with invisible `<div role="dialog">` elements, which the `actions.py` functions handle automatically via smart JS injection.
 
 ---
 
-## Like a Post
-```python
-# Navigate to post
-await browser.nav(f"https://www.instagram.com/p/{post_id}/")
-await browser.human_delay(3, 6)
-snap = await browser.snapshot()
-
-# Find heart/like button (usually has aria-label "Like")
-await browser.human_delay(2, 5)  # Think before liking
-await browser.click(like_ref)
-await browser.screenshot("logs/liked.png")
-```
-
----
-
-## View Stories
-```python
-await browser.nav("https://www.instagram.com/")
-await browser.human_delay(3, 5)
-snap = await browser.snapshot()
-# Stories appear as circular profile pics at the top
-# Click on a story circle
-await browser.click(story_ref)
-await browser.human_delay(5, 10)  # Watch the story
-# Click right side to advance
-await browser.screenshot("logs/story_viewed.png")
-```
-
----
-
-## Post Content
+## Post Content (Manual)
 ```python
 # Click "+" or create new post icon
 snap = await browser.snapshot()
@@ -182,28 +166,6 @@ await browser.human_delay(2, 4)
 # Type caption
 # Add hashtags
 # Click "Share"
-```
-
----
-
-## Block a User
-```python
-await browser.nav(f"https://www.instagram.com/{username}/")
-await browser.human_delay(3, 6)
-snap = await browser.snapshot()
-# Find the Options (three dots) button
-await browser.click(options_ref)
-await browser.human_delay(1, 3)
-
-snap = await browser.snapshot()
-# Click 'Block'
-await browser.click(block_ref)
-await browser.human_delay(1, 3)
-
-snap = await browser.snapshot()
-# Confirm 'Block' on the popup
-await browser.click(confirm_block_ref)
-await browser.screenshot("logs/blocked.png")
 ```
 
 ---
