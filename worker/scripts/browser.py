@@ -147,7 +147,7 @@ class SnapshotBrowser:
 
     # ──────────────────────────── ACTIONS ────────────────────────────
 
-    async def click(self, ref: int):
+    async def click(self, ref: int, force=False):
         """Click element by ref number from last snapshot."""
         el = self._element_map.get(ref)
         if not el:
@@ -159,11 +159,117 @@ class SnapshotBrowser:
         try:
             await el.scroll_into_view_if_needed()
             await self.human_delay(0.3, 0.8)
-            await el.click()
-            print(f"[Click] Clicked [{ref}]")
+            await el.click(force=force)
+            print(f"[Click] Clicked [{ref}] (force={force})")
         except Exception as e:
             print(f"[Click] Failed on [{ref}]: {e}")
             raise
+
+    # ──────────────────────────── SMART HELPERS ────────────────────────────
+
+    async def js_click_aria(self, aria_label: str) -> bool:
+        """
+        Bypass intercepting dialogs/overlays by using native JavaScript to click an SVG
+        or its closest interactive parent button by aria-label.
+        """
+        print(f"[SmartClick] Attempting JS click on aria-label: '{aria_label}'")
+        clicked = await self.page.evaluate(f'''(label) => {{
+            let svgs = document.querySelectorAll(`svg[aria-label="${{label}}"]`);
+            if (svgs.length > 0) {{
+                // Iterate backwards since modals/overlays are usually appended last
+                for (let i = svgs.length - 1; i >= 0; i--) {{
+                    let svg = svgs[i];
+                    let btn = svg.closest('button') || svg.closest('div[role="button"]') || svg.closest('a');
+                    if (btn) {{
+                        btn.click();
+                        return true;
+                    }} else {{
+                        // Fallback to clicking the SVG itself or its direct parent
+                        (svg.parentElement || svg).click();
+                        return true;
+                    }}
+                }}
+            }}
+            return false;
+        }}''', aria_label)
+        if clicked:
+            print(f"[SmartClick] Successfully clicked '{aria_label}' via JS")
+        else:
+            print(f"[SmartClick] Failed to find or click '{aria_label}' via JS")
+        return clicked
+
+    async def wait_and_fill(self, placeholder: str, text: str, timeout=5000):
+        """
+        Smartly wait for an input with a specific placeholder to be attached and visible,
+        then fill it. Handles modal latency.
+        """
+        print(f"[SmartFill] Looking for input with placeholder '{placeholder}'")
+        try:
+            # Wait for any input to attach first to handle React latency
+            await self.page.locator('input').first.wait_for(state='attached', timeout=timeout)
+        except Exception:
+            pass
+
+        inputs = await self.page.locator('input').all()
+        for inp in inputs:
+            ph = await inp.get_attribute('placeholder')
+            if ph and placeholder.lower() in ph.lower():
+                await inp.fill(text)
+                print(f"[SmartFill] Filled '{text}' into placeholder '{ph}'")
+                return True
+
+        # If input not found, try textarea
+        textareas = await self.page.locator('textarea').all()
+        for ta in textareas:
+            ph = await ta.get_attribute('placeholder')
+            aria = await ta.get_attribute('aria-label')
+            if (ph and placeholder.lower() in ph.lower()) or (aria and placeholder.lower() in aria.lower()):
+                await ta.fill(text)
+                print(f"[SmartFill] Filled '{text}' into textarea (placeholder/aria '{ph or aria}')")
+                return True
+
+        print(f"[SmartFill] Failed to find input/textarea matching '{placeholder}'")
+        return False
+
+    async def smart_click_text(self, text: str, exact=False, force=True, timeout=5000) -> bool:
+        """
+        Find a button containing exact or partial text and click it using force=True to bypass overlays.
+        If multiple exist (e.g., in a block confirmation dialog), clicks the last one (usually the active modal).
+        """
+        print(f"[SmartClickText] Looking for button with text '{text}'")
+        try:
+            if exact:
+                locator = self.page.locator(f'button:has-text("{text}")').last
+            else:
+                # Playwright's default has-text is a substring match
+                locator = self.page.locator(f'button', has_text=text).last
+
+            if await locator.is_visible(timeout=timeout):
+                await locator.click(force=force)
+                print(f"[SmartClickText] Clicked button '{text}'")
+                return True
+        except Exception as e:
+            print(f"[SmartClickText] Playwright locator failed: {e}. Falling back to JS...")
+
+        # JS fallback for stubborn overlapping buttons (like Instagram Block confirms)
+        clicked = await self.page.evaluate(f'''(args) => {{
+            let btns = document.querySelectorAll('button, div[role="button"]');
+            for(let i = btns.length - 1; i >= 0; i--) {{
+                let bText = btns[i].innerText || "";
+                if (args.exact && bText.trim() === args.text) {{
+                    btns[i].click(); return true;
+                }} else if (!args.exact && bText.includes(args.text)) {{
+                    btns[i].click(); return true;
+                }}
+            }}
+            return false;
+        }}''', {"text": text, "exact": exact})
+
+        if clicked:
+            print(f"[SmartClickText] Clicked button '{text}' via JS fallback")
+        else:
+            print(f"[SmartClickText] Failed to find button '{text}'")
+        return clicked
 
     async def type_text(self, ref: int, text: str, delay_ms=80):
         """Type into element by ref number."""
