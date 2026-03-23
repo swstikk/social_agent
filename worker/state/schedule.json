@@ -1,0 +1,28 @@
+{
+  "recurring": [
+    {
+      "id": "check_instagram_dms",
+      "task": "Check Instagram DMs and report any unread messages",
+      "skill": "instagram",
+      "every_minutes": 3,
+      "last_run": null,
+      "enabled": true
+    },
+    {
+      "id": "check_whatsapp",
+      "task": "Check WhatsApp Web for new messages",
+      "skill": "whatsapp",
+      "every_minutes": 5,
+      "last_run": null,
+      "enabled": false
+    },
+    {
+      "id": "reddit_browse",
+      "task": "Browse target subreddits for coding partner posts",
+      "skill": "reddit",
+      "every_minutes": 30,
+      "last_run": null,
+      "enabled": false
+    }
+  ]
+}
