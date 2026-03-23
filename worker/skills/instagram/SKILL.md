@@ -186,6 +186,71 @@ await browser.human_delay(2, 4)
 
 ---
 
+## Block a User
+```python
+await browser.nav(f"https://www.instagram.com/{username}/")
+await browser.human_delay(3, 6)
+snap = await browser.snapshot()
+# Find the Options (three dots) button
+await browser.click(options_ref)
+await browser.human_delay(1, 3)
+
+snap = await browser.snapshot()
+# Click 'Block'
+await browser.click(block_ref)
+await browser.human_delay(1, 3)
+
+snap = await browser.snapshot()
+# Confirm 'Block' on the popup
+await browser.click(confirm_block_ref)
+await browser.screenshot("logs/blocked.png")
+```
+
+---
+
+## Share a Reel
+```python
+await browser.nav(f"https://www.instagram.com/reel/{reel_id}/")
+await browser.human_delay(3, 6)
+snap = await browser.snapshot()
+# Find the Share button
+await browser.click(share_ref)
+await browser.human_delay(2, 4)
+
+snap = await browser.snapshot()
+# Find the recipient search box and type their name
+await browser.type_text(search_ref, recipient_username)
+await browser.human_delay(2, 4)
+
+snap = await browser.snapshot()
+# Select the user from the list
+await browser.click(user_ref)
+
+snap = await browser.snapshot()
+# Click 'Send'
+await browser.click(send_ref)
+await browser.screenshot("logs/reel_shared.png")
+```
+
+---
+
+## Comment on a Post
+```python
+await browser.nav(f"https://www.instagram.com/p/{post_id}/")
+await browser.human_delay(3, 6)
+snap = await browser.snapshot()
+# Find the comment input box (often placeholder "Add a comment...")
+await browser.type_text(comment_box_ref, comment_text)
+await browser.human_delay(1, 3)
+
+snap = await browser.snapshot()
+# Find the Post button (or press Enter)
+await browser.click(post_button_ref)
+await browser.screenshot("logs/commented.png")
+```
+
+---
+
 ## Anti-Ban Rules ⚠️
 
 | Action | Rate Limit | Cool Down |
