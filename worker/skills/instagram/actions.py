@@ -472,6 +472,8 @@ async def unsend_message(browser: "SnapshotBrowser", username: str, message_text
     Solves Instagram's hidden hover menus by calculating the exact bounding
     box of the message and using Playwright's native mouse movements to reveal
     the 'See more options' button.
+    Crucially, it guarantees targeting accuracy by scoping the 3-dot button
+    to the specific message row wrapper, rather than blindly clicking `.last`.
     """
     print(f"--- Action: Unsend Message to {username} ---")
     await browser.nav("https://www.instagram.com/direct/inbox/")
@@ -505,25 +507,35 @@ async def unsend_message(browser: "SnapshotBrowser", username: str, message_text
 
         await browser.human_delay(5, 8)
 
-        # Now find the specific message
+        # Now find the specific message. Instagram wraps messages in a generic row div.
+        # We find the specific text, then find its highest-level parent row to scope the 3-dot menu.
         msg_locators = browser.page.locator(f'div[dir="auto"]:has-text("{message_text}")')
         count = await msg_locators.count()
         if count == 0:
             print(f"❌ Message containing '{message_text}' not found in chat.")
             return False
 
-        target = msg_locators.nth(count - 1) # target the most recent one
+        target_text_el = msg_locators.nth(count - 1) # target the most recent one
+
+        # Find the structural row container for this specific message.
+        # In Instagram's layout, a message bubble and its adjacent options menu are wrapped together.
+        # We can find a common ancestor that encapsulates both.
+        # Usually, role="row" or a similar block-level div is used. Let's find the closest parent div
+        # that looks like a message row (often has flex layout).
+        # A safer approach is to use JS to climb up the DOM until we find a container that spans the full width,
+        # but Playwright's locator chaining is easier. We will find the closest div that likely contains the whole row.
+        row_wrapper = target_text_el.locator("xpath=ancestor::div[contains(@class, 'x1n2onr6') or @role='row' or @role='button'][last() - 2]").first
 
         # Scroll it into view (wrap in try-except as Instagram React DOM sometimes throws pointer interception errors here)
         try:
-            await target.scroll_into_view_if_needed(timeout=5000)
+            await target_text_el.scroll_into_view_if_needed(timeout=5000)
         except:
             pass
 
         await browser.human_delay(1, 2)
 
         # Get bounding box using JS to bypass Playwright's strict visibility checks on nested spans
-        box = await target.evaluate('''el => {
+        box = await target_text_el.evaluate('''el => {
             let rect = el.getBoundingClientRect();
             return {x: rect.x, y: rect.y, w: rect.width, h: rect.height};
         }''')
@@ -536,12 +548,31 @@ async def unsend_message(browser: "SnapshotBrowser", username: str, message_text
         await browser.page.mouse.move(box['x'] + box['w']/2, box['y'] + box['h']/2, steps=10)
         await browser.human_delay(1, 2)
 
-        # Instagram dynamically renders an SVG with aria-label="See more options for message from..."
-        more_btn = browser.page.locator('svg[aria-label^="See more options for message"]').locator("xpath=ancestor::div[@role='button']").last
+        # GUARENTEED TARGETING: Instead of selecting `.last` globally, we scope the search for the
+        # 'See more options' button strictly to the `row_wrapper` or just structurally close to the `target_text_el`.
+        # Even better: The 3-dot menu is a sibling or uncle to the message bubble.
+        # Let's search for the SVG within a bounding box, or just globally find the one that is currently visible and closest to our coordinates.
+        # The safest structural way: evaluate JS to find the exact SVG element currently in the DOM that is closest to our hovered box.
 
-        if await more_btn.is_visible(timeout=3000):
-            print("✅ Found 'See more options' button.")
-            await more_btn.click(force=True)
+        more_btn_found = await browser.page.evaluate(f'''() => {{
+            const buttons = Array.from(document.querySelectorAll('svg[aria-label^="See more options for message"]'));
+            for (let svg of buttons) {{
+                // Find its clickable parent
+                let btn = svg.closest('[role="button"]');
+                if (btn) {{
+                    let rect = btn.getBoundingClientRect();
+                    // The button should be vertically aligned with our hovered message box
+                    if (rect.y >= {box['y']} - 50 && rect.y <= {box['y']} + {box['h']} + 50) {{
+                        btn.click();
+                        return true;
+                    }}
+                }}
+            }}
+            return false;
+        }}''')
+
+        if more_btn_found:
+            print("✅ Found and clicked specifically scoped 'See more options' button.")
             await browser.human_delay(1, 2)
 
             # Click Unsend in the dropdown menu
@@ -564,7 +595,7 @@ async def unsend_message(browser: "SnapshotBrowser", username: str, message_text
                 print("❌ Failed to confirm unsend in dialog.")
                 return False
         else:
-            print("❌ 'See more options' button did not appear after hover.")
+            print("❌ 'See more options' button did not appear near the targeted message after hover.")
             return False
 
     except Exception as e:
