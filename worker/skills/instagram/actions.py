@@ -478,43 +478,87 @@ async def unsend_message(browser: "SnapshotBrowser", username: str, message_text
     print(f"--- Action: Unsend Message to {username} ---")
     await browser.nav("https://www.instagram.com/direct/inbox/")
     await browser.dismiss_dialogs()
-    await browser.human_delay(2, 4)
+    # Reduced delay for speed
+    await browser.human_delay(1, 2)
 
     try:
-        # Search for the user in the inbox
-        filled = await browser.wait_and_fill("Search", username)
-        if not filled:
-            print("❌ Search input not found in inbox.")
-            return False
-
-        await browser.human_delay(3, 5)
-
-        # Click the user to open the chat
+        # Instead of searching (which can be unreliable), look in the inbox list directly
         snap = await browser.snapshot()
-        user_ref = browser.find_by_text(username)
+        user_ref = -1
+        for line in snap.splitlines():
+            # Loose match to handle emojis like "Sherly🪷" or "Sherly🪿"
+            if username in line and "You" in line:
+                match = re.search(r'\[(\d+)\]', line)
+                if match:
+                    user_ref = int(match.group(1))
+                    break
+
         if user_ref > 0:
-            await browser.force_click(user_ref)
+            print(f"Clicking user chat (ref [{user_ref}])...")
+            await browser.click(user_ref, force=True)
         else:
-            # Fallbacks: try checkbox or exact span text
-            checkboxes = await browser.page.locator('input[type="checkbox"]').all()
-            if checkboxes:
-                await checkboxes[0].click(force=True)
+            print(f"User {username} not found in direct inbox list. Falling back to search.")
+            # Search for the user in the inbox
+            filled = await browser.wait_and_fill("Search", username)
+            if not filled:
+                print("❌ Search input not found in inbox.")
+                return False
+
+            await browser.human_delay(1, 2)
+
+            # Click the user to open the chat
+            snap = await browser.snapshot()
+            user_ref = browser.find_by_text(username)
+            if user_ref > 0:
+                await browser.force_click(user_ref)
             else:
-                clicked = await browser.js_click_text("span", username)
-                if not clicked:
-                    print(f"❌ User '{username}' not found in inbox search.")
-                    return False
+                # Fallbacks: try checkbox or exact span text
+                checkboxes = await browser.page.locator('input[type="checkbox"]').all()
+                if checkboxes:
+                    await checkboxes[0].click(force=True)
+                else:
+                    clicked = await browser.js_click_text("span", username)
+                    if not clicked:
+                        print(f"❌ User '{username}' not found in inbox search.")
+                        return False
 
-        await browser.human_delay(5, 8)
+        # Quick wait for chat to load
+        await browser.human_delay(2, 3)
 
-        # Now find the specific message. Instagram wraps messages in a generic row div.
-        # We find the specific text, then find its highest-level parent row to scope the 3-dot menu.
+        # Smart Dynamic Scrolling!
+        # Instead of a fixed 5 scrolls (which wastes 10-15 seconds), we check if the message is in DOM,
+        # and only scroll if it's missing. Stop scrolling the moment we find it.
+        js_script = """
+        () => {
+            const containers = document.querySelectorAll('div[role="presentation"], div[class*="x1n2onr6"]');
+            let scrolled = false;
+            for (let c of containers) {
+                if (c.scrollHeight > c.clientHeight) {
+                    c.scrollTop = 0;
+                    scrolled = true;
+                }
+            }
+            return scrolled;
+        }
+        """
+
         msg_locators = browser.page.locator(f'div[dir="auto"]:has-text("{message_text}")')
         count = await msg_locators.count()
+
+        scroll_attempts = 0
+        while count == 0 and scroll_attempts < 10:
+            print(f"Message not yet visible. Scrolling up (Attempt {scroll_attempts + 1})...")
+            await browser.page.evaluate(js_script)
+            await browser.page.keyboard.press("PageUp")
+            await browser.human_delay(1, 2)
+            count = await msg_locators.count()
+            scroll_attempts += 1
+
         if count == 0:
-            print(f"❌ Message containing '{message_text}' not found in chat.")
+            print(f"❌ Message containing '{message_text}' not found in chat after scrolling.")
             return False
 
+        print(f"✅ Target message found after {scroll_attempts} scrolls.")
         target_text_el = msg_locators.nth(count - 1) # target the most recent one
 
         # Find the structural row container for this specific message.
