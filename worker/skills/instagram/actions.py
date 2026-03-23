@@ -11,6 +11,12 @@ async def follow_user(browser: "SnapshotBrowser", username: str):
     await browser.human_delay(2, 4)
 
     try:
+        # Check if already following
+        following_btn = browser.page.get_by_role("button", name="Following", exact=True).first
+        if await following_btn.is_visible(timeout=3000):
+            print(f"✅ Already following {username}.")
+            return True
+
         # Use exact match so we don't accidentally click "Following" and unfollow them
         follow_btn = browser.page.get_by_role("button", name="Follow", exact=True).first
         if await follow_btn.is_visible(timeout=5000):
@@ -18,10 +24,89 @@ async def follow_user(browser: "SnapshotBrowser", username: str):
             await follow_btn.click(force=True)
             await browser.human_delay(2, 4)
             print("✅ Successfully Followed.")
+            return True
         else:
-            print(f"✅ Already following or 'Follow' not found for {username}.")
+            print(f"❌ 'Follow' button not found for {username}.")
+            return False
     except Exception as e:
         print(f"❌ Error in follow_user: {e}")
+        return False
+
+async def unfollow_user(browser: "SnapshotBrowser", username: str):
+    """Finds the 'Following' button on a profile and clicks Unfollow to undo."""
+    print(f"--- Action: Unfollow {username} ---")
+    await browser.nav(f"https://www.instagram.com/{username}/")
+    await browser.human_delay(2, 4)
+
+    try:
+        # Check if not following
+        follow_btn = browser.page.get_by_role("button", name="Follow", exact=True).first
+        if await follow_btn.is_visible(timeout=3000):
+            print(f"✅ Not currently following {username}. No need to unfollow.")
+            return True
+
+        # The button text is "Following"
+        following_btn = browser.page.get_by_role("button", name="Following", exact=True).first
+        if await following_btn.is_visible(timeout=5000):
+            print(f"Clicking 'Following' button to unfollow {username}...")
+            await following_btn.click(force=True)
+            await browser.human_delay(2, 4)
+
+            # Now click 'Unfollow' in the confirmation popup
+            unfollow_confirm = await browser.smart_click_text("Unfollow", exact=True)
+            if unfollow_confirm:
+                await browser.human_delay(2, 4)
+                print("✅ Successfully Unfollowed.")
+                return True
+            else:
+                print("❌ Confirm Unfollow dialog not found.")
+                return False
+        else:
+            print(f"❌ 'Following' button not found for {username}.")
+            return False
+    except Exception as e:
+        print(f"❌ Error in unfollow_user: {e}")
+        return False
+
+async def watch_story(browser: "SnapshotBrowser", username: str):
+    """Checks if the user has an active story, clicks to watch it, and takes a screenshot."""
+    print(f"--- Action: Watch Story for {username} ---")
+    await browser.nav(f"https://www.instagram.com/{username}/")
+    await browser.human_delay(2, 4)
+
+    try:
+        # Story ring on profile picture
+        # The profile picture button often has a specific aria-label or role when a story is active
+        story_ring = browser.page.locator('div[role="button"]:has(img[alt*="profile picture"])').first
+
+        if await story_ring.is_visible(timeout=5000):
+            # To be absolutely sure it's an unread/available story, we could check for the colorful canvas border,
+            # but clicking the profile picture wrapper is generally safe. If no story, it just does nothing or expands DP.
+            print(f"Found profile picture ring for {username}. Clicking to view story...")
+            await story_ring.click(force=True)
+            await browser.human_delay(3, 5)
+
+            # Verify if we entered the story viewer
+            if "stories" in browser.page.url:
+                print("✅ Successfully opened story.")
+                await browser.screenshot(f"worker/logs/screenshots/story_{username}.png")
+
+                # Close the story to return to profile
+                close_btn = browser.page.locator('svg[aria-label="Close"]').first
+                if await close_btn.is_visible(timeout=5000):
+                    await close_btn.click(force=True)
+                    await browser.human_delay(2, 4)
+                    print("✅ Closed story.")
+                return True
+            else:
+                print("❌ Clicked profile picture but did not enter story viewer (no active story).")
+                return False
+        else:
+            print(f"❌ No story ring found for {username}.")
+            return False
+    except Exception as e:
+        print(f"❌ Error in watch_story: {e}")
+        return False
 
 async def open_first_post(browser: "SnapshotBrowser"):
     """Takes a snapshot and clicks the first available post link."""
@@ -80,20 +165,24 @@ async def like_post(browser: "SnapshotBrowser"):
     """Clicks the like button (heart) on an open post."""
     print("--- Action: Like Post ---")
     try:
+        unlike_button = browser.page.locator('svg[aria-label="Unlike"]').first
+        if await unlike_button.is_visible(timeout=3000):
+            print("✅ Post is already liked. Skipping like action.")
+            return True
+
         like_button = browser.page.locator('svg[aria-label="Like"]').first
         if await like_button.is_visible(timeout=5000):
             print("Found 'Like' button. Clicking...")
             await like_button.click(force=True)
             await browser.human_delay(2, 4)
             print("✅ Post liked.")
+            return True
         else:
-            unlike_button = browser.page.locator('svg[aria-label="Unlike"]').first
-            if await unlike_button.is_visible(timeout=5000):
-                print("✅ Post is already liked.")
-            else:
-                print("❌ Could not find Like or Unlike button.")
+            print("❌ Could not find Like or Unlike button.")
+            return False
     except Exception as e:
         print(f"❌ Error in like_post: {e}")
+        return False
 
 async def comment_post(browser: "SnapshotBrowser", text: str):
     """Writes a comment on an open post and clicks Post."""
@@ -164,6 +253,26 @@ async def close_modal(browser: "SnapshotBrowser"):
             print("❌ Could not find 'Close' button.")
     except Exception as e:
          print(f"❌ Error closing modal: {e}")
+
+async def unblock_user(browser: "SnapshotBrowser"):
+    """Finds the 'Unblock' button on a profile and confirms it."""
+    print("--- Action: Unblock User ---")
+    try:
+        # 1. Click the main Unblock button on the profile
+        unblock_clicked = await browser.smart_click_text("Unblock", exact=True)
+        if unblock_clicked:
+            await browser.human_delay(2, 4)
+            # 2. Click Unblock in the confirmation dialog
+            confirm_unblock = await browser.smart_click_text("Unblock", exact=True)
+            if confirm_unblock:
+                await browser.human_delay(3, 5)
+                print("✅ User unblocked successfully.")
+            else:
+                print("❌ Confirm unblock failed.")
+        else:
+            print("❌ 'Unblock' button not found on profile (user might not be blocked).")
+    except Exception as e:
+        print(f"❌ Error in unblock_user: {e}")
 
 async def block_user(browser: "SnapshotBrowser"):
     """Clicks Options on profile and clicks Block, confirming the dialog."""
