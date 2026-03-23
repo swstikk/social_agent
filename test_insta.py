@@ -262,35 +262,38 @@ async def test_instagram_features():
         await browser.nav(f"https://www.instagram.com/{target_username}/")
         await browser.human_delay(3, 6)
         snap = await browser.snapshot()
-        options_ref = await browser.find_by_text("More options")
+        options_ref = await browser.find_by_text("Options")
         if options_ref == -1:
-            options_ref = await browser.find_by_text("Options")
+            options_ref = await browser.find_by_text("More options")
 
         if options_ref != -1:
             try:
                  await browser.click(options_ref)
                  await browser.human_delay(2, 4)
+
+                 # The "Block" option appears in a dropdown/modal
                  snap = await browser.snapshot()
                  block_ref = await browser.find_by_text("Block")
                  if block_ref != -1:
                      await browser.click(block_ref)
                      await browser.human_delay(2, 4)
-                     snap = await browser.snapshot()
-                     confirm_block = await browser.find_by_text("Block")
-                     if confirm_block != -1:
-                          # Now actually clicking confirm block since user confirmed it's okay for dummy testing
-                          await browser.click(confirm_block)
-                          await browser.human_delay(2, 4)
-                          print("✅ Blocked User Confirmed")
-                          await browser.screenshot("worker/logs/screenshots/9_blocked.png")
-                     else:
-                          print("❌ Confirm block button not found")
+
+                     # Instagram throws an overlay modal here. Playwright normal click gets intercepted.
+                     # We must use force=True and target the specific dialog button.
+                     # To do this safely using our SnapshotBrowser wrapper we execute standard page locator
+                     print("Attempting to bypass modal interception with force=True...")
+                     await browser.page.locator('div[role="dialog"] button').filter(has_text="Block").first.click(force=True)
+                     await browser.human_delay(3, 5)
+
+                     print("✅ Blocked User Confirmed")
+                     await browser.screenshot("worker/logs/screenshots/9_blocked.png")
+
                  else:
-                      print("❌ Block option not found")
+                      print("❌ Block option not found in options menu")
             except Exception as e:
                  print(f"❌ Failed to block: {e}")
         else:
-             print("❌ Options button not found")
+             print("❌ Options button not found on profile")
 
     except Exception as e:
         print(f"❌ Error during test: {e}")
