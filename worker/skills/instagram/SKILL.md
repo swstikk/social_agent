@@ -40,7 +40,7 @@ await unblock_user(browser, "username")    # Unblock → confirm dialog
 
 # DMs
 await send_dm(browser, "user", "Hey!")     # compose flow
-await unsend_message(browser, "user", "Hey!") # finds and unsends a specific message
+await unsend_message(browser, "user", "Hey!") # finds and unsends a specific message. Uses dynamic scrolling to locate message.
 
 # Search
 found, results = await search_user(browser, "cristiano")
