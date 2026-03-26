@@ -1,0 +1,7 @@
+
+# Ignores
+worker/logs/screenshots/
+worker/logs/snapshots/
+__pycache__/
+*.pyc
+worker/config/cookies/
